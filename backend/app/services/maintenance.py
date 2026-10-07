@@ -59,3 +59,40 @@ class MaintenanceService:
         entry["pending"] = target != STATUS_ORDER[-1]
         entry["abnormal"] = action in NEGATIVE_ACTIONS
         return entry, f"检修计划已{action}"
+
+    def sync_transformer_oil_level(
+        self,
+        *,
+        transformer_id: int,
+        device_name: str,
+        oil_level: str,
+        verdict: str,
+    ) -> dict[str, Any]:
+        """把变压器「油位异常」结论同步到检修计划台账（upsert）。
+
+        同一台变压器只对应一条台账记录（按关联编号关联），重复同步就地更新，
+        台账里的油位读数始终与变压器判定结果保持一致。
+        """
+        rows = store.rows(MODULE)
+        plan_no = f"MAIN-TRAN-{transformer_id:04d}"
+        entry = next(
+            (row for row in rows if row.get("关联编号") == plan_no),
+            None,
+        )
+        if entry is None:
+            entry = {"id": max((int(row.get("id", 0)) for row in rows), default=0) + 1}
+            rows.append(entry)
+
+        entry.update({
+            "计划编号": plan_no,
+            "关联编号": plan_no,
+            "来源模块": "transformer",
+            "检修设备": device_name,
+            "检修类别": "油位异常处理",
+            "计划状态": verdict,
+            "油位读数": oil_level,
+            "status": "待审批",
+            "pending": True,
+            "abnormal": True,
+        })
+        return entry
